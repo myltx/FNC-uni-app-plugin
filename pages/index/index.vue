@@ -18,7 +18,7 @@ export default {
   data() {
     return {
       readResult: "",
-      inputValue: "qqqqqq",
+      inputValue: "测试 NFC",
     };
   },
   onLoad() {

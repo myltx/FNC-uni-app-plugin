@@ -2,7 +2,7 @@
 
 ## 模块概述
 
-本模块提供了完整的 NFC 标签读写功能，支持 Promise 和事件监听两种方式，包含完整的状态管理和错误处理机制。
+本模块提供了完整的 NFC 标签读写功能，支持 Promise 和事件监听两种方式，包含完整的状态管理和错误处理机制。基于 uni-app 开发，支持 Android 平台。
 
 ## 目录结构
 
@@ -11,6 +11,7 @@ utils/nfc/
 ├── index.js          # 模块入口文件
 ├── NFCHelper.js      # NFC 核心功能实现
 ├── NFCState.js       # NFC 状态管理
+├── constants.js      # 常量定义
 └── README.md         # 使用说明文档
 ```
 
@@ -26,6 +27,9 @@ utils/nfc/
 - 数据格式验证
 - 详细的错误处理
 - 支持操作重试机制
+- 支持标签格式化
+- 支持 MIME 类型数据写入
+- 支持标签容量检测
 
 ## 配置项
 
@@ -40,15 +44,16 @@ utils/nfc/
 
 ### 核心方法
 
-| 方法名          | 参数                              | 返回值  | 说明                |
-| --------------- | --------------------------------- | ------- | ------------------- |
-| init            | options: Object                   | Promise | 初始化 NFC 模块     |
-| readData        | callback: Function                | -       | 读取 NFC 标签数据   |
-| writeData       | data: String                      | -       | 写入数据到 NFC 标签 |
-| on              | event: String, callback: Function | -       | 注册事件监听        |
-| off             | event: String, callback: Function | -       | 移除事件监听        |
-| setWriteData    | data: String                      | -       | 设置要写入的数据    |
-| validateNFCData | data: String                      | Boolean | 验证 NFC 数据格式   |
+| 方法名          | 参数                                    | 返回值  | 说明                |
+| --------------- | --------------------------------------- | ------- | ------------------- |
+| init            | options: Object                         | Promise | 初始化 NFC 模块     |
+| readData        | callback: Function                      | -       | 读取 NFC 标签数据   |
+| writeData       | data: String                            | -       | 写入数据到 NFC 标签 |
+| on              | event: String, callback: Function       | -       | 注册事件监听        |
+| off             | event: String, callback: Function       | -       | 移除事件监听        |
+| setWriteData    | data: String                            | -       | 设置要写入的数据    |
+| validateNFCData | data: String                            | Boolean | 验证 NFC 数据格式   |
+| retryOperation  | operation: Function, maxRetries: Number | Promise | 操作重试机制        |
 
 ### 事件类型
 
@@ -157,6 +162,8 @@ nfc.on("write_error", (error) => {
 8. 标签不允许写入
 9. 文件大小超出容量
 10. 格式化失败
+11. 标签连接失败
+12. 标签未格式化
 
 ## 使用建议
 
@@ -166,6 +173,8 @@ nfc.on("write_error", (error) => {
 4. 添加适当的用户提示和加载状态
 5. 实现数据验证和错误处理
 6. 考虑添加重试机制
+7. 注意处理标签容量限制
+8. 合理设置超时时间
 
 ## 示例代码
 
@@ -281,8 +290,21 @@ export default {
 4. 注意在页面卸载时清理事件监听
 5. 添加适当的错误处理和用户提示
 6. 考虑添加数据验证和重试机制
+7. 注意处理标签容量限制
+8. 合理设置超时时间
+9. 确保标签已正确格式化
+10. 注意处理标签连接状态
+11. 当前写入`NFC`不够稳定容易出现写入成功，但是数据并未写入问题
 
 ## 更新日志
+
+### v1.3.0
+
+- 添加标签格式化功能
+- 支持 MIME 类型数据写入
+- 添加标签容量检测
+- 优化标签连接处理
+- 完善错误处理机制
 
 ### v1.2.0
 

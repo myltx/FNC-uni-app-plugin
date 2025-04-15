@@ -15,6 +15,7 @@ export default {
 
   // 写入数据
   writeData(data) {
+    console.log("-----writeData-----");
     return new Promise((resolve, reject) => {
       if (nfcState.noNFC) {
         nfcHelper.showToast("请检查设备是否支持并开启 NFC 功能！");

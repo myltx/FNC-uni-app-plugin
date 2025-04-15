@@ -63,7 +63,6 @@ if (uni.restoreGlobal) {
     ["android.nfc.tech.MifareClassi"],
     ["android.nfc.tech.MifareUltralight"]
   ];
-  const DEFAULT_TEXT = "{id:123,name:nfc,stie:cssmini.com}";
   class NFCState {
     constructor() {
       this.readyWrite = false;
@@ -344,34 +343,43 @@ if (uni.restoreGlobal) {
                 throw new Error("写入超时");
               }
             }, 5e3);
-            const textToWrite = this.writeDataText || DEFAULT_TEXT;
-            const textBytes = plus.android.invoke(textToWrite, "getBytes");
+            const dataToWrite = "qqqqqq";
+            formatAppLog("log", "at utils/nfc/NFCHelper.js:318", "准备写入数据:", dataToWrite);
+            const textBytes = plus.android.invoke(dataToWrite, "getBytes");
             const mimeTypeBytes = plus.android.invoke("text/plain", "getBytes");
+            const emptyPrefix = plus.android.invoke("", "getBytes");
             const textRecord = new this.ndefRecord(
               this.ndefRecord.TNF_MIME_MEDIA,
               // 记录类型
               mimeTypeBytes,
               // MIME 类型
-              plus.android.invoke("", "getBytes"),
+              emptyPrefix,
               // 空前缀
               textBytes
               // 数据字节
             );
-            formatAppLog("log", "at utils/nfc/NFCHelper.js:329", "textRecord:", textRecord);
+            formatAppLog("log", "at utils/nfc/NFCHelper.js:332", "NDEF 记录:", textRecord);
             const message = new this.ndefMessage([textRecord]);
-            formatAppLog("log", "at utils/nfc/NFCHelper.js:333", "message:", message);
+            formatAppLog("log", "at utils/nfc/NFCHelper.js:336", "NDEF 消息:", message);
             const Ndef = plus.android.importClass(NFC_PACKAGES.Ndef);
             const NdefFormatable = plus.android.importClass(
               NFC_PACKAGES.NdefFormatable
             );
             const tag = intent.getParcelableExtra(this.nfcAdapter.EXTRA_TAG);
-            const ndef = Ndef.get(tag);
+            let ndef = Ndef.get(tag);
             if (ndef) {
-              formatAppLog("log", "at utils/nfc/NFCHelper.js:344", "NFC 标签已准备好，开始写入");
+              formatAppLog("log", "at utils/nfc/NFCHelper.js:347", "NFC 标签已准备好，开始写入");
               await this.writeNdefTag(ndef, message);
+              formatAppLog("log", "at utils/nfc/NFCHelper.js:350", "数据成功写入");
             } else {
-              formatAppLog("log", "at utils/nfc/NFCHelper.js:347", "NFC 标签未格式化，尝试格式化并写入");
-              await this.formatAndWrite(NdefFormatable.get(tag), message);
+              formatAppLog("log", "at utils/nfc/NFCHelper.js:352", "NFC 标签未格式化，尝试格式化并写入");
+              const nfcTag = NdefFormatable.get(tag);
+              if (nfcTag) {
+                nfcTag.format(message);
+                formatAppLog("log", "at utils/nfc/NFCHelper.js:359", "格式化并写入数据成功");
+              } else {
+                throw new Error("无法格式化此 NFC 标签");
+              }
             }
             this.hideLoading();
             this.resetOperationState();
@@ -379,7 +387,7 @@ if (uni.restoreGlobal) {
             return true;
           } catch (error) {
             this.showToast("写入失败");
-            formatAppLog("error", "at utils/nfc/NFCHelper.js:357", "写入错误:", error);
+            formatAppLog("error", "at utils/nfc/NFCHelper.js:371", "写入错误:", error);
             this.resetOperationState();
             this.emit(NFC_EVENTS.WRITE_ERROR, error);
             throw error;
@@ -389,17 +397,37 @@ if (uni.restoreGlobal) {
     }
     // 写入NDEF标签
     async writeNdefTag(ndef, message) {
-      const size = message.toByteArray().length;
-      formatAppLog("log", "at utils/nfc/NFCHelper.js:371", size, this.writeDataText, "size");
-      await ndef.connect();
-      if (!ndef.isWritable()) {
-        throw new Error("tag不允许写入");
+      try {
+        const size = message.toByteArray().length;
+        formatAppLog("log", "at utils/nfc/NFCHelper.js:386", size, this.writeDataText, "size");
+        await this.connectToTag(ndef);
+        if (!ndef.isWritable()) {
+          throw new Error("标签不允许写入");
+        }
+        if (ndef.getMaxSize() < size) {
+          throw new Error("数据大小超出标签容量");
+        }
+        if (!ndef.isConnected()) {
+          throw new Error("NFC 标签未连接成功");
+        }
+        await ndef.writeNdefMessage(message);
+        formatAppLog("log", "at utils/nfc/NFCHelper.js:408", "message:", message);
+        this.showToast("数据写入成功！");
+      } catch (error) {
+        formatAppLog("error", "at utils/nfc/NFCHelper.js:411", "写入错误:", error);
+        this.showToast("写入失败");
+        throw error;
       }
-      if (ndef.getMaxSize() < size) {
-        throw new Error("文件大小超出容量");
+    }
+    // 为了确保 NFC 标签已连接，增加连接延时的封装
+    async connectToTag(ndef) {
+      try {
+        await ndef.connect();
+        formatAppLog("log", "at utils/nfc/NFCHelper.js:421", "NFC 标签连接成功");
+      } catch (error) {
+        formatAppLog("error", "at utils/nfc/NFCHelper.js:423", "连接 NFC 标签失败:", error);
+        throw new Error("连接 NFC 标签失败");
       }
-      await ndef.writeNdefMessage(message);
-      this.showToast("写入数据成功！");
     }
     // 格式化并写入
     async formatAndWrite(format, message) {
@@ -510,6 +538,7 @@ if (uni.restoreGlobal) {
     },
     // 写入数据
     writeData(data) {
+      formatAppLog("log", "at utils/nfc/index.js:18", "-----writeData-----");
       return new Promise((resolve, reject) => {
         if (nfcState.noNFC) {
           nfcHelper.showToast("请检查设备是否支持并开启 NFC 功能！");
@@ -523,7 +552,7 @@ if (uni.restoreGlobal) {
     },
     // 读取数据
     readData() {
-      formatAppLog("log", "at utils/nfc/index.js:32", "-----readData-----");
+      formatAppLog("log", "at utils/nfc/index.js:33", "-----readData-----");
       return new Promise((resolve, reject) => {
         if (nfcState.noNFC) {
           nfcHelper.showToast("请检查设备是否支持并开启 NFC 功能！");
@@ -554,7 +583,7 @@ if (uni.restoreGlobal) {
     data() {
       return {
         readResult: "",
-        inputValue: "qqqqqq"
+        inputValue: "测试 NFC"
       };
     },
     onLoad() {
