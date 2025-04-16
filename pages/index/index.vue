@@ -13,7 +13,7 @@
 </template>
 
 <script>
-import nfc from "@/utils/nfc/index.js";
+import nfc from "@/utils/NFC-uni-app-plugin/index.js";
 export default {
   data() {
     return {
