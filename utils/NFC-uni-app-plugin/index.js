@@ -15,7 +15,6 @@ export default {
 
   // 写入数据
   writeData(data) {
-    console.log("-----writeData-----");
     return new Promise((resolve, reject) => {
       if (nfcState.noNFC) {
         nfcHelper.showToast("请检查设备是否支持并开启 NFC 功能！");
@@ -38,6 +37,7 @@ export default {
         return;
       }
       nfcState.setReadyRead(true);
+      // nfc.enableNFCForegroundDispatch(); // 🔥 加上这句
       nfcHelper.showToast("请将NFC标签靠近！");
     });
   },
@@ -50,5 +50,11 @@ export default {
   // 移除事件监听
   off(event, callback) {
     nfcHelper.off(event, callback);
+  },
+  enableNFCForegroundDispatch() {
+    nfc.enableNFCForegroundDispatch();
+  },
+  disableNFCForegroundDispatch() {
+    nfc.disableNFCForegroundDispatch();
   },
 };

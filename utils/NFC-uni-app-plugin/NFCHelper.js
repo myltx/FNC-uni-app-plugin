@@ -144,7 +144,6 @@ class NFCHelper {
   handleNFCEvent() {
     const main = plus.android.runtimeMainActivity();
     const intent = main.getIntent();
-
     if (NFC_PACKAGES.TECH_DISCOVERED === intent.getAction()) {
       if (nfcState.readyWrite) {
         this.write(intent);
@@ -209,6 +208,7 @@ class NFCHelper {
 
   // 读取NFC数据
   read(intent) {
+    console.log("读取NFC数据");
     return new Promise((resolve, reject) => {
       this.retryOperation(async () => {
         try {
@@ -291,7 +291,6 @@ class NFCHelper {
 
   // 设置要写入的数据
   setWriteData(data) {
-    console.log("setWriteData:", data);
     this.writeDataText = data;
   }
 
@@ -314,63 +313,38 @@ class NFCHelper {
           }, 5000);
 
           // 使用传入的数据，如果没有则使用默认数据
-          const dataToWrite = "qqqqqq"; // 默认数据
-          console.log("准备写入数据:", dataToWrite);
-
-          // 将数据转换为字节数组
-          const textBytes = plus.android.invoke(dataToWrite, "getBytes");
-          const mimeTypeBytes = plus.android.invoke("text/plain", "getBytes"); // MIME 类型
-          const emptyPrefix = plus.android.invoke("", "getBytes"); // 空前缀
-
-          // 创建 NDEF 记录
+          const textToWrite = this.writeDataText || DEFAULT_TEXT;
+          const textBytes = plus.android.invoke(textToWrite, "getBytes");
           const textRecord = new this.ndefRecord(
-            this.ndefRecord.TNF_MIME_MEDIA, // 记录类型
-            mimeTypeBytes, // MIME 类型
-            emptyPrefix, // 空前缀
-            textBytes // 数据字节
+            this.ndefRecord.TNF_MIME_MEDIA,
+            plus.android.invoke("text/plain", "getBytes"),
+            plus.android.invoke("", "getBytes"),
+            textBytes
           );
-          console.log("NDEF 记录:", textRecord);
 
-          // 创建 NDEF 消息
           const message = new this.ndefMessage([textRecord]);
-          console.log("NDEF 消息:", message);
-
-          // 获取 NFC 标签对象
           const Ndef = plus.android.importClass(NFC_PACKAGES.Ndef);
           const NdefFormatable = plus.android.importClass(
             NFC_PACKAGES.NdefFormatable
           );
           const tag = intent.getParcelableExtra(this.nfcAdapter.EXTRA_TAG);
-          let ndef = Ndef.get(tag);
-
+          const ndef = Ndef.get(tag);
+          console.log("ndef:", ndef);
           if (ndef) {
-            console.log("NFC 标签已准备好，开始写入");
-            // 调用写入方法
             await this.writeNdefTag(ndef, message);
-            console.log("数据成功写入");
           } else {
-            console.log("NFC 标签未格式化，尝试格式化并写入");
-
-            // 如果标签是未格式化的，我们先格式化它
-            const nfcTag = NdefFormatable.get(tag);
-            if (nfcTag) {
-              // 使用 NdefFormatable 来格式化 NFC 标签
-              nfcTag.format(message); // 格式化并写入数据
-              console.log("格式化并写入数据成功");
-            } else {
-              throw new Error("无法格式化此 NFC 标签");
-            }
+            await this.formatAndWrite(NdefFormatable.get(tag), message);
           }
 
-          this.hideLoading(); // 隐藏加载动画
-          this.resetOperationState(); // 重置操作状态
-          this.emit(NFC_EVENTS.WRITE_COMPLETE); // 触发写入完成事件
+          this.hideLoading();
+          this.resetOperationState();
+          this.emit(NFC_EVENTS.WRITE_COMPLETE);
           return true;
         } catch (error) {
           this.showToast("写入失败");
           console.error("写入错误:", error);
-          this.resetOperationState(); // 重置操作状态
-          this.emit(NFC_EVENTS.WRITE_ERROR, error); // 触发写入错误事件
+          this.resetOperationState();
+          this.emit(NFC_EVENTS.WRITE_ERROR, error);
           throw error;
         }
       })
@@ -378,51 +352,90 @@ class NFCHelper {
         .catch(reject);
     });
   }
+  // 启用前台分发
+  enableNFCForegroundDispatch() {
+    const main = plus.android.runtimeMainActivity();
+    const Intent = plus.android.importClass("android.content.Intent");
+    const PendingIntent = plus.android.importClass("android.app.PendingIntent");
+    const IntentFilter = plus.android.importClass(
+      "android.content.IntentFilter"
+    );
+    const Activity = plus.android.importClass("android.app.Activity");
+    const NfcAdapter = plus.android.importClass("android.nfc.NfcAdapter");
 
-  // 写入NDEF标签
-  async writeNdefTag(ndef, message) {
-    try {
-      const size = message.toByteArray().length;
-      console.log(size, this.writeDataText, "size");
+    this.nfcAdapter = NfcAdapter.getDefaultAdapter(main);
 
-      // 连接到 NFC 标签，增加延时确保标签已准备好
-      await this.connectToTag(ndef);
+    if (!this.nfcAdapter) {
+      console.error("设备不支持NFC功能");
+      return;
+    }
 
-      // 检查 NFC 标签是否允许写入
-      if (!ndef.isWritable()) {
-        throw new Error("标签不允许写入");
-      }
+    const intent = new Intent(main, main.getClass());
+    intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
 
-      // 检查文件大小是否超出标签的容量
-      if (ndef.getMaxSize() < size) {
-        throw new Error("数据大小超出标签容量");
-      }
+    const pendingIntent = PendingIntent.getActivity(
+      main,
+      0,
+      intent,
+      PendingIntent.FLAG_MUTABLE
+    );
+    const ndefFilter = new IntentFilter(NfcAdapter.ACTION_NDEF_DISCOVERED);
+    ndefFilter.addDataType("*/*"); // 监听所有类型的NFC
 
-      // 确保 NFC 标签已经成功连接
-      if (!ndef.isConnected()) {
-        throw new Error("NFC 标签未连接成功");
-      }
+    const filters = [ndefFilter];
 
-      // 写入数据到标签
-      await ndef.writeNdefMessage(message);
-      console.log("message:", message);
-      this.showToast("数据写入成功！");
-    } catch (error) {
-      console.error("写入错误:", error);
-      this.showToast("写入失败");
-      throw error;
+    this.nfcAdapter.enableForegroundDispatch(
+      main,
+      pendingIntent,
+      filters,
+      null
+    );
+    this.showToast("前台分发已启用");
+    // const ndef = new IntentFilter(NFC_PACKAGES.TECH_DISCOVERED);
+    // ndef.addDataType("*/*");
+    // const intentFiltersArray = [ndef];
+    // const adapter = this.nfcAdapter.getDefaultAdapter(main);
+    // this.setupEventListeners(adapter, main, pendingIntent, intentFiltersArray);
+    nfcState.setReadyRead(true); // 设置为准备读取状态
+    // this.handleNFCEvent();
+
+    // this.read(intent);
+  }
+
+  // 禁用前台分发
+  disableNFCForegroundDispatch() {
+    if (this.nfcAdapter) {
+      const main = plus.android.runtimeMainActivity();
+      this.nfcAdapter.disableForegroundDispatch(main);
     }
   }
 
-  // 为了确保 NFC 标签已连接，增加连接延时的封装
-  async connectToTag(ndef) {
-    try {
-      await ndef.connect();
-      console.log("NFC 标签连接成功");
-    } catch (error) {
-      console.error("连接 NFC 标签失败:", error);
-      throw new Error("连接 NFC 标签失败");
+  // 写入NDEF标签
+  async writeNdefTag(ndef, message) {
+    const size = message.toByteArray().length;
+
+    await this.timeoutPromise(ndef.connect());
+
+    if (!ndef.isWritable()) {
+      throw new Error("tag不允许写入");
     }
+
+    if (ndef.getMaxSize() < size) {
+      throw new Error("文件大小超出容量");
+    }
+
+    await this.timeoutPromise(ndef.writeNdefMessage(message));
+    this.showToast("写入数据成功！");
+  }
+
+  async timeoutPromise(promise, timeoutMs = 10000) {
+    let timeout;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeout = setTimeout(() => reject(new Error("操作超时")), timeoutMs);
+    });
+    return Promise.race([promise, timeoutPromise]).finally(() =>
+      clearTimeout(timeout)
+    );
   }
 
   // 格式化并写入
@@ -436,7 +449,7 @@ class NFCHelper {
       await format.format(message);
       this.showToast("格式化tag并且写入message成功");
     } catch (error) {
-      throw new Error("格式化tag失败");
+      throw new Error(`格式化tag失败: ${error.message || error}`);
     }
   }
 
@@ -474,6 +487,7 @@ class NFCHelper {
     }
     nfcState.setReadyRead(true);
     this.readDataCalBack = readDataCalBack;
+    // this.enableNFCForegroundDispatch(); // 🔥 加上这句
     this.showToast("请将NFC标签靠近！");
   }
   // 显示提示

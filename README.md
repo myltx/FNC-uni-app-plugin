@@ -2,7 +2,7 @@
 
 ## 模块概述
 
-本模块提供了完整的 NFC 标签读写功能，支持 Promise 和事件监听两种方式，包含完整的状态管理和错误处理机制。基于 uni-app 开发，支持 Android 平台。
+本模块提供了完整的 NFC 标签读写功能，支持 Promise 和事件监听两种方式，包含完整的状态管理和错误处理机制。支持台前调度模式下的 NFC 操作。
 
 ## 目录结构
 
@@ -11,7 +11,6 @@ utils/nfc/
 ├── index.js          # 模块入口文件
 ├── NFCHelper.js      # NFC 核心功能实现
 ├── NFCState.js       # NFC 状态管理
-├── constants.js      # 常量定义
 └── README.md         # 使用说明文档
 ```
 
@@ -27,9 +26,10 @@ utils/nfc/
 - 数据格式验证
 - 详细的错误处理
 - 支持操作重试机制
-- 支持标签格式化
-- 支持 MIME 类型数据写入
-- 支持标签容量检测
+- 支持台前调度模式
+- 自动重试机制（最多 3 次）
+- 完善的生命周期管理
+- 增强的状态监控
 
 ## 配置项
 
@@ -44,16 +44,18 @@ utils/nfc/
 
 ### 核心方法
 
-| 方法名          | 参数                                    | 返回值  | 说明                |
-| --------------- | --------------------------------------- | ------- | ------------------- |
-| init            | options: Object                         | Promise | 初始化 NFC 模块     |
-| readData        | callback: Function                      | -       | 读取 NFC 标签数据   |
-| writeData       | data: String                            | -       | 写入数据到 NFC 标签 |
-| on              | event: String, callback: Function       | -       | 注册事件监听        |
-| off             | event: String, callback: Function       | -       | 移除事件监听        |
-| setWriteData    | data: String                            | -       | 设置要写入的数据    |
-| validateNFCData | data: String                            | Boolean | 验证 NFC 数据格式   |
-| retryOperation  | operation: Function, maxRetries: Number | Promise | 操作重试机制        |
+| 方法名                       | 参数                                    | 返回值  | 说明                  |
+| ---------------------------- | --------------------------------------- | ------- | --------------------- |
+| init                         | options: Object                         | Promise | 初始化 NFC 模块       |
+| readData                     | callback: Function                      | -       | 读取 NFC 标签数据     |
+| writeData                    | data: String                            | -       | 写入数据到 NFC 标签   |
+| on                           | event: String, callback: Function       | -       | 注册事件监听          |
+| off                          | event: String, callback: Function       | -       | 移除事件监听          |
+| setWriteData                 | data: String                            | -       | 设置要写入的数据      |
+| validateNFCData              | data: String                            | Boolean | 验证 NFC 数据格式     |
+| retryOperation               | operation: Function, maxRetries: Number | Promise | 重试操作（最多 3 次） |
+| enableNFCForegroundDispatch  | -                                       | -       | 启用 NFC 前台调度     |
+| disableNFCForegroundDispatch | -                                       | -       | 禁用 NFC 前台调度     |
 
 ### 事件类型
 
@@ -66,6 +68,7 @@ utils/nfc/
 | write_complete | -                 | NFC 标签写入完成  |
 | write_error    | error: Error      | NFC 标签写入失败  |
 | card_removed   | operation: String | NFC 标签被移开    |
+| state_change   | state: String     | NFC 状态变化      |
 
 ## 安装与使用
 
@@ -113,6 +116,15 @@ nfc.on("read_complete", (data) => {
 nfc.on("read_error", (error) => {
   console.error("读取错误:", error);
 });
+
+// 方式三：使用重试机制
+try {
+  await nfc.retryOperation(async () => {
+    await nfc.readData();
+  });
+} catch (error) {
+  console.error("操作失败:", error);
+}
 ```
 
 ### 3. 写入 NFC 数据
@@ -136,6 +148,20 @@ nfc.on("write_complete", () => {
 nfc.on("write_error", (error) => {
   console.error("写入错误:", error);
 });
+```
+
+### 4. 台前调度模式
+
+```javascript
+// 在页面显示时启用台前调度
+onShow() {
+  nfc.enableNFCForegroundDispatch();
+}
+
+// 在页面隐藏时禁用台前调度
+onHide() {
+  nfc.disableNFCForegroundDispatch();
+}
 ```
 
 ## 状态管理
@@ -162,8 +188,7 @@ nfc.on("write_error", (error) => {
 8. 标签不允许写入
 9. 文件大小超出容量
 10. 格式化失败
-11. 标签连接失败
-12. 标签未格式化
+11. 台前调度模式下的权限问题
 
 ## 使用建议
 
@@ -173,8 +198,9 @@ nfc.on("write_error", (error) => {
 4. 添加适当的用户提示和加载状态
 5. 实现数据验证和错误处理
 6. 考虑添加重试机制
-7. 注意处理标签容量限制
-8. 合理设置超时时间
+7. 注意处理卡片移开和超时情况
+8. 在页面卸载时清理 NFC 资源
+9. 在台前调度模式下正确管理 NFC 生命周期
 
 ## 示例代码
 
@@ -188,6 +214,7 @@ export default {
       nfc.on('read_error', this.handleReadError);
       nfc.on('write_complete', this.handleWriteComplete);
       nfc.on('write_error', this.handleWriteError);
+      nfc.on('state_change', this.handleStateChange);
     });
   },
 
@@ -204,6 +231,9 @@ export default {
     },
     handleWriteError(error) {
       uni.$emit('nfc_write_error', error);
+    },
+    handleStateChange(state) {
+      uni.$emit('nfc_state_change', state);
     }
   }
 }
@@ -213,7 +243,8 @@ export default {
   data() {
     return {
       nfcData: '',
-      isLoading: false
+      isLoading: false,
+      nfcState: 'idle'
     }
   },
 
@@ -223,6 +254,17 @@ export default {
     uni.$on('nfc_read_error', this.handleNFCError);
     uni.$on('nfc_write_complete', this.handleWriteSuccess);
     uni.$on('nfc_write_error', this.handleWriteError);
+    uni.$on('nfc_state_change', this.handleStateChange);
+  },
+
+  onShow() {
+    // 启用台前调度
+    nfc.enableNFCForegroundDispatch();
+  },
+
+  onHide() {
+    // 禁用台前调度
+    nfc.disableNFCForegroundDispatch();
   },
 
   onUnload() {
@@ -231,6 +273,7 @@ export default {
     uni.$off('nfc_read_error', this.handleNFCError);
     uni.$off('nfc_write_complete', this.handleWriteSuccess);
     uni.$off('nfc_write_error', this.handleWriteError);
+    uni.$off('nfc_state_change', this.handleStateChange);
   },
 
   methods: {
@@ -277,6 +320,26 @@ export default {
         icon: 'none'
       });
       this.isLoading = false;
+    },
+
+    handleStateChange(state) {
+      this.nfcState = state;
+      // 根据状态更新UI
+      switch(state) {
+        case 'idle':
+          this.isLoading = false;
+          break;
+        case 'reading':
+        case 'writing':
+          this.isLoading = true;
+          break;
+        case 'success':
+          this.isLoading = false;
+          break;
+        case 'error':
+          this.isLoading = false;
+          break;
+      }
     }
   }
 }
@@ -284,27 +347,18 @@ export default {
 
 ## 注意事项
 
-1. 使用前请确保设备支持 NFC 功能
-2. 需要用户授权 NFC 权限
-3. 建议在 `app.vue` 中统一管理 NFC 事件
-4. 注意在页面卸载时清理事件监听
-5. 添加适当的错误处理和用户提示
-6. 考虑添加数据验证和重试机制
-7. 注意处理标签容量限制
-8. 合理设置超时时间
-9. 确保标签已正确格式化
-10. 注意处理标签连接状态
-11. 当前写入`NFC`不够稳定容易出现写入成功，但是数据并未写入问题
+1. 确保在 AndroidManifest.xml 中添加了必要的 NFC 权限
+2. 在 iOS 设备上，NFC 功能可能受限
+3. 建议在操作前检查设备 NFC 状态
+4. 注意处理卡片移开和超时情况
+5. 在页面卸载时记得清理 NFC 资源
+6. 考虑添加适当的用户提示和加载状态
+7. 实现数据验证和错误处理机制
+8. 使用重试机制提高操作成功率
+9. 在台前调度模式下正确管理 NFC 生命周期
+10. 注意处理台前调度模式下的权限问题
 
 ## 更新日志
-
-### v1.3.0
-
-- 添加标签格式化功能
-- 支持 MIME 类型数据写入
-- 添加标签容量检测
-- 优化标签连接处理
-- 完善错误处理机制
 
 ### v1.2.0
 
@@ -312,6 +366,7 @@ export default {
 - 优化错误处理
 - 完善数据验证
 - 改进事件系统
+- 支持台前调度模式
 
 ### v1.1.0
 
